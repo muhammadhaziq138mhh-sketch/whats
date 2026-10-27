@@ -1,0 +1,106 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Default deny all access
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        request.auth.token.email == 'muhammadhaziq138mhh@gmail.com' ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // User profiles
+    match /users/{userId} {
+      allow get: if isSignedIn() && isValidId(userId);
+      allow list: if isSignedIn();
+      allow create: if isOwner(userId) && isValidId(userId) &&
+        request.resource.data.displayName is string &&
+        request.resource.data.displayName.size() <= 100 &&
+        (!('role' in request.resource.data) || request.resource.data.role == 'user' || isAdmin());
+      allow update: if (isOwner(userId) || isAdmin()) && isValidId(userId) &&
+        (!('role' in request.resource.data) || request.resource.data.role == resource.data.role || isAdmin());
+      allow delete: if (isOwner(userId) || isAdmin()) && isValidId(userId);
+
+      // Status stories subcollection
+      match /statuses/{statusId} {
+        allow read: if isSignedIn();
+        allow create: if isOwner(userId) && isValidId(statusId) && request.resource.data.userId == request.auth.uid;
+        allow update, delete: if (isOwner(userId) || isAdmin()) && isValidId(statusId);
+      }
+    }
+
+    // Conversations
+    match /conversations/{conversationId} {
+      allow get: if isSignedIn() && isValidId(conversationId) && (request.auth.uid in resource.data.memberIds || isAdmin());
+      allow list: if isSignedIn() && (request.auth.uid in resource.data.memberIds || isAdmin());
+      allow create: if isSignedIn() && isValidId(conversationId) &&
+        request.auth.uid in request.resource.data.memberIds &&
+        request.resource.data.createdBy == request.auth.uid;
+      allow update: if isSignedIn() && isValidId(conversationId) &&
+        (request.auth.uid in resource.data.memberIds || isAdmin());
+      allow delete: if isSignedIn() && isValidId(conversationId) &&
+        (resource.data.createdBy == request.auth.uid || isAdmin());
+
+      // Messages inside conversations
+      match /messages/{messageId} {
+        allow get: if isSignedIn() && isValidId(messageId) &&
+          (get(/databases/$(database)/documents/conversations/$(conversationId)).data.memberIds.hasAny([request.auth.uid]) || isAdmin());
+        allow list: if isSignedIn() &&
+          (get(/databases/$(database)/documents/conversations/$(conversationId)).data.memberIds.hasAny([request.auth.uid]) || isAdmin());
+        allow create: if isSignedIn() && isValidId(messageId) &&
+          request.resource.data.senderId == request.auth.uid &&
+          get(/databases/$(database)/documents/conversations/$(conversationId)).data.memberIds.hasAny([request.auth.uid]);
+        allow update: if isSignedIn() && isValidId(messageId) &&
+          (resource.data.senderId == request.auth.uid ||
+           get(/databases/$(database)/documents/conversations/$(conversationId)).data.memberIds.hasAny([request.auth.uid]) ||
+           isAdmin());
+        allow delete: if isSignedIn() && isValidId(messageId) &&
+          (resource.data.senderId == request.auth.uid || isAdmin());
+      }
+    }
+
+    // Voice and video calls
+    match /calls/{callId} {
+      allow get: if isSignedIn() && isValidId(callId) &&
+        (resource.data.callerId == request.auth.uid || resource.data.receiverId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() &&
+        (resource.data.callerId == request.auth.uid || resource.data.receiverId == request.auth.uid || isAdmin());
+      allow create: if isSignedIn() && isValidId(callId) &&
+        request.resource.data.callerId == request.auth.uid;
+      allow update: if isSignedIn() && isValidId(callId) &&
+        (resource.data.callerId == request.auth.uid || resource.data.receiverId == request.auth.uid || isAdmin());
+      allow delete: if isSignedIn() && isValidId(callId) &&
+        (resource.data.callerId == request.auth.uid || isAdmin());
+    }
+
+    // Reports collection for abuse/moderation
+    match /reports/{reportId} {
+      allow create: if isSignedIn() && isValidId(reportId) &&
+        request.resource.data.reporterId == request.auth.uid;
+      allow read, update, delete: if isAdmin();
+    }
+
+    // Admins registry
+    match /admins/{userId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+  }
+}

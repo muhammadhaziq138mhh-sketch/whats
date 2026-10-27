@@ -1,0 +1,9 @@
+{
+  "name": "Connectly",
+  "description": "A modern, secure WhatsApp-style real-time messaging application featuring direct & group chats, media sharing, voice messages, presence, and WebRTC calls.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
